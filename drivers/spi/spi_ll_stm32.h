@@ -63,8 +63,8 @@ struct stream {
 struct spi_stm32_data {
 	struct spi_context ctx;
 #ifdef CONFIG_SPI_STM32_DMA
-	struct k_sem status_sem;
-	volatile uint32_t status_flags;
+	uint32_t status_flags;
+	uint32_t all_done;
 	struct stream dma_rx;
 	struct stream dma_tx;
 #endif /* CONFIG_SPI_STM32_DMA */

@@ -334,7 +334,7 @@ void spi_context_update_tx(struct spi_context *ctx, uint8_t dfs, uint32_t len)
 	}
 
 	ctx->tx_len -= len;
-	if (!ctx->tx_len) {
+	if (ctx->tx_len == 0) {
 		/* Current buffer is done. Get the next one to be processed. */
 		++ctx->current_tx;
 		--ctx->tx_count;
