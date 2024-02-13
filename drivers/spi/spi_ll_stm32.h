@@ -42,11 +42,12 @@ struct spi_stm32_config {
 #define SPI_STM32_DMA_ERROR_FLAG	0x01
 #define SPI_STM32_DMA_RX_DONE_FLAG	0x02
 #define SPI_STM32_DMA_TX_DONE_FLAG	0x04
-#define SPI_STM32_DMA_DONE_FLAG	\
+#define SPI_STM32_DMA_DONE_MASK	\
 	(SPI_STM32_DMA_RX_DONE_FLAG | SPI_STM32_DMA_TX_DONE_FLAG)
 
 #define SPI_STM32_DMA_TX	0x01
 #define SPI_STM32_DMA_RX	0x02
+#define SPI_STM32_FIFO_SIZE	32 /* bit */
 
 struct stream {
 	const struct device *dma_dev;
@@ -64,7 +65,7 @@ struct spi_stm32_data {
 	struct spi_context ctx;
 #ifdef CONFIG_SPI_STM32_DMA
 	uint32_t status_flags;
-	uint32_t all_done;
+	bool use_dma;
 	struct stream dma_rx;
 	struct stream dma_tx;
 #endif /* CONFIG_SPI_STM32_DMA */

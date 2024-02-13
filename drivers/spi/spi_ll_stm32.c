@@ -52,7 +52,6 @@ LOG_MODULE_REGISTER(spi_ll_stm32);
 #endif /* defined(CONFIG_CPU_HAS_DCACHE) && !defined(CONFIG_NOCACHE_MEMORY) */
 
 #define WAIT_1US	1U
-#define SPI_STM32_FIFO_SIZE	32 /* bit */
 
 /*
  * Check for SPI_SR_FRE to determine support for TI mode frame format
@@ -130,7 +129,7 @@ static void dma_callback(const struct device *dma_dev, void *arg,
 		}
 	}
 
-	if ((data->status_flags & SPI_STM32_DMA_DONE_FLAG) == data->all_done) {
+	if ((data->status_flags & SPI_STM32_DMA_DONE_MASK) == SPI_STM32_DMA_DONE_MASK) {
 		spi_stm32_dma_stop(dev);
 		if (spi_context_tx_on(&data->ctx) || spi_context_rx_on(&data->ctx)) {
 			// start next buffer
@@ -530,10 +529,10 @@ static void spi_stm32_complete(const struct device *dev, int status)
 
 #ifdef CONFIG_SPI_STM32_INTERRUPT
 
-static bool spi_stm32_dma_active(struct spi_stm32_data *data)
+static bool spi_stm32_dma_inuse(struct spi_stm32_data *data)
 {
 #ifdef CONFIG_SPI_STM32_DMA
-	return (data->all_done > 0);
+	return data->use_dma;
 #endif
 	return false;
 }
@@ -560,7 +559,7 @@ static void spi_stm32_isr(const struct device *dev)
 		return;
 	}
 
-	if (!spi_stm32_dma_active(data) && spi_stm32_transfer_ongoing(data)) {
+	if (!spi_stm32_dma_inuse(data) && spi_stm32_transfer_ongoing(data)) {
 		err = spi_stm32_shift_frames(cfg, data);
 	}
 
@@ -962,18 +961,10 @@ static int spi_stm32_dma_start(const struct device *dev)
 
 	dma_len = spi_stm32_dma_len(data);
 	data->status_flags = 0;
-	data->all_done = 0;
-
 	const uint8_t frame_size = SPI_WORD_SIZE_GET(data->ctx.config->operation);
-	if (IS_ENABLED(CONFIG_SPI_STM32_INTERRUPT) && (dma_len <= (SPI_STM32_FIFO_SIZE / frame_size))) {
+	data->use_dma = (!IS_ENABLED(CONFIG_SPI_STM32_INTERRUPT) || (dma_len > (SPI_STM32_FIFO_SIZE / frame_size)));
+	if (!data->use_dma) {
 		return 0;
-	}
-
-	if (data->dma_tx.dma_dev != NULL) {
-		data->all_done |= SPI_STM32_DMA_TX_DONE_FLAG;
-	}
-	if (data->dma_rx.dma_dev != NULL) {
-		data->all_done |= SPI_STM32_DMA_RX_DONE_FLAG;
 	}
 
 	ret = spi_stm32_dma_load(dev, dma_len);
@@ -1131,6 +1122,11 @@ end:
 
 	return ret;
 }
+
+static bool spi_stm32_dma_dev(struct spi_stm32_data *data)
+{
+	return (data->dma_tx.dma_dev != NULL) && (data->dma_rx.dma_dev != NULL);
+}
 #endif /* CONFIG_SPI_STM32_DMA */
 
 static int spi_stm32_transceive(const struct device *dev,
@@ -1141,8 +1137,7 @@ static int spi_stm32_transceive(const struct device *dev,
 #ifdef CONFIG_SPI_STM32_DMA
 	struct spi_stm32_data *data = dev->data;
 
-	if ((data->dma_tx.dma_dev != NULL)
-	 && (data->dma_rx.dma_dev != NULL)) {
+	if (spi_stm32_dma_dev(data)) {
 		return transceive_dma(dev, config, tx_bufs, rx_bufs,
 				      false, NULL, NULL);
 	}
@@ -1161,8 +1156,7 @@ static int spi_stm32_transceive_async(const struct device *dev,
 #ifdef CONFIG_SPI_STM32_DMA
 	struct spi_stm32_data *data = dev->data;
 
-	if ((data->dma_tx.dma_dev != NULL)
-	 && (data->dma_rx.dma_dev != NULL)) {
+	if (spi_stm32_dma_dev(data)) {
 		return transceive_dma(dev, config, tx_bufs, rx_bufs,
 				      true, cb, userdata);
 	}
