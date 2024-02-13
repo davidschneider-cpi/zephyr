@@ -528,6 +528,15 @@ static void spi_stm32_complete(const struct device *dev, int status)
 }
 
 #ifdef CONFIG_SPI_STM32_INTERRUPT
+
+static bool spi_stm32_dma_active(struct spi_stm32_data *data)
+{
+#ifdef CONFIG_SPI_STM32_DMA
+	return (data->all_done > 0);
+#endif
+	return false;
+}
+
 static void spi_stm32_isr(const struct device *dev)
 {
 	const struct spi_stm32_config *cfg = dev->config;
@@ -550,11 +559,9 @@ static void spi_stm32_isr(const struct device *dev)
 		return;
 	}
 
-#ifndef CONFIG_SPI_STM32_DMA
-	if (spi_stm32_transfer_ongoing(data)) {
+	if (!spi_stm32_dma_active(data) && spi_stm32_transfer_ongoing(data)) {
 		err = spi_stm32_shift_frames(cfg, data);
 	}
-#endif
 
 	if (err || !spi_stm32_transfer_ongoing(data)) {
 		spi_stm32_complete(dev, err);
@@ -947,11 +954,19 @@ static size_t spi_stm32_dma_len(struct spi_stm32_data *data) {
 // start_transfer
 static int spi_stm32_dma_start(const struct device *dev)
 {
+	const struct spi_stm32_config *cfg = dev->config;
 	struct spi_stm32_data *data = dev->data;
 	int ret;
+	size_t dma_len;
 
+	dma_len = spi_stm32_dma_len(data);
 	data->status_flags = 0;
 	data->all_done = 0;
+
+	if (IS_ENABLED(CONFIG_SPI_STM32_INTERRUPT) && (dma_len <= 4)) { // TODO: 32bit
+		return 0;
+	}
+
 	if (data->dma_tx.dma_dev != NULL) {
 		data->all_done |= SPI_STM32_DMA_TX_DONE_FLAG;
 	}
@@ -959,14 +974,12 @@ static int spi_stm32_dma_start(const struct device *dev)
 		data->all_done |= SPI_STM32_DMA_RX_DONE_FLAG;
 	}
 
-	size_t dma_len = spi_stm32_dma_len(data);
 	ret = spi_dma_move_buffers(dev, dma_len);
 	if (ret != 0) {
 		return ret;
 	}
 
 #if !DT_HAS_COMPAT_STATUS_OKAY(st_stm32h7_spi)
-	const struct spi_stm32_config *cfg = dev->config;
 	SPI_TypeDef *spi = cfg->spi;
 	/* toggle the DMA request to restart the transfer */
 	LL_SPI_EnableDMAReq_RX(spi);
