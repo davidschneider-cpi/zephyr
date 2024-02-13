@@ -363,11 +363,6 @@ static int spi_rx_half_end(struct spi_dt_spec *spec)
 	};
 	int ret;
 
-	if (IS_ENABLED(CONFIG_SPI_STM32_DMA)) {
-		LOG_INF("Skip half end");
-		return 0;
-	}
-
 	LOG_INF("Start half end");
 
 	(void)memset(buffer_rx, 0, BUF_SIZE);
@@ -428,11 +423,6 @@ static int spi_rx_every_4(struct spi_dt_spec *spec)
 		.count = ARRAY_SIZE(rx_bufs)
 	};
 	int ret;
-
-	if (IS_ENABLED(CONFIG_SPI_STM32_DMA)) {
-		LOG_INF("Skip every 4");
-		return 0;
-	}
 
 	if (IS_ENABLED(CONFIG_DSPI_MCUX_EDMA)) {
 		LOG_INF("Skip every 4");
@@ -499,11 +489,6 @@ static int spi_rx_bigger_than_tx(struct spi_dt_spec *spec)
 		.count = ARRAY_SIZE(rx_bufs)
 	};
 	int ret;
-
-	if (IS_ENABLED(CONFIG_SPI_STM32_DMA)) {
-		LOG_INF("Skip rx bigger than tx");
-		return 0;
-	}
 
 	LOG_INF("Start rx bigger than tx");
 

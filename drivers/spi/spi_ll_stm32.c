@@ -52,6 +52,7 @@ LOG_MODULE_REGISTER(spi_ll_stm32);
 #endif /* defined(CONFIG_CPU_HAS_DCACHE) && !defined(CONFIG_NOCACHE_MEMORY) */
 
 #define WAIT_1US	1U
+#define SPI_STM32_FIFO_SIZE	32 /* bit */
 
 /*
  * Check for SPI_SR_FRE to determine support for TI mode frame format
@@ -131,7 +132,7 @@ static void dma_callback(const struct device *dma_dev, void *arg,
 
 	if ((data->status_flags & SPI_STM32_DMA_DONE_FLAG) == data->all_done) {
 		spi_stm32_dma_stop(dev);
-		if (spi_context_tx_on(&data->ctx) && spi_context_rx_on(&data->ctx)) {
+		if (spi_context_tx_on(&data->ctx) || spi_context_rx_on(&data->ctx)) {
 			// start next buffer
 			int ret = spi_stm32_dma_start(dev);
 			if (ret != 0) {
@@ -264,7 +265,7 @@ static int spi_stm32_dma_rx_load(const struct device *dev, uint8_t *buf,
 	return dma_start(data->dma_rx.dma_dev, data->dma_rx.channel);
 }
 
-static int spi_dma_move_buffers(const struct device *dev, size_t len)
+static int spi_stm32_dma_load(const struct device *dev, size_t len)
 {
 	struct spi_stm32_data *data = dev->data;
 	int ret;
@@ -963,7 +964,8 @@ static int spi_stm32_dma_start(const struct device *dev)
 	data->status_flags = 0;
 	data->all_done = 0;
 
-	if (IS_ENABLED(CONFIG_SPI_STM32_INTERRUPT) && (dma_len <= 4)) { // TODO: 32bit
+	const uint8_t frame_size = SPI_WORD_SIZE_GET(data->ctx.config->operation);
+	if (IS_ENABLED(CONFIG_SPI_STM32_INTERRUPT) && (dma_len <= (SPI_STM32_FIFO_SIZE / frame_size))) {
 		return 0;
 	}
 
@@ -974,7 +976,7 @@ static int spi_stm32_dma_start(const struct device *dev)
 		data->all_done |= SPI_STM32_DMA_RX_DONE_FLAG;
 	}
 
-	ret = spi_dma_move_buffers(dev, dma_len);
+	ret = spi_stm32_dma_load(dev, dma_len);
 	if (ret != 0) {
 		return ret;
 	}
@@ -1006,8 +1008,10 @@ static void spi_stm32_dma_stop(const struct device *dev)
 		SPI_WORD_SIZE_GET(data->ctx.config->operation));
 
 	// update context to use next buffer
-	spi_context_update_tx(&data->ctx, frame_size_bytes, data->ctx.tx_len);
-	spi_context_update_rx(&data->ctx, frame_size_bytes, data->ctx.rx_len);
+	uint32_t tx_len = data->dma_tx.dma_blk_cfg.block_size / data->dma_tx.dma_cfg.source_data_size;
+	uint32_t rx_len = data->dma_rx.dma_blk_cfg.block_size / data->dma_rx.dma_cfg.dest_data_size;
+	spi_context_update_tx(&data->ctx, frame_size_bytes, tx_len);
+	spi_context_update_rx(&data->ctx, frame_size_bytes, rx_len);
 }
 
 static void spi_stm32_dma_empty_buffer(SPI_TypeDef *spi)
@@ -1114,12 +1118,6 @@ static int transceive_dma(const struct device *dev,
 	if (!asynchronous) {
 		// wait until buffer is empty and SPI idle
 		spi_stm32_dma_empty_buffer(spi);
-
-		spi_stm32_dma_stop(dev);
-
-		/* spi complete relies on SPI Status Reg which cannot be disabled */
-		spi_stm32_complete(dev, ret);
-
 
 #ifdef CONFIG_SPI_SLAVE
 		if (spi_context_is_slave(&data->ctx) && !ret) {
